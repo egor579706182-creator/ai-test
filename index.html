@@ -5,19 +5,35 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Diagnostic Assistant</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-<script type="importmap">
+    <!-- Tailwind с плагином typography для красивого отображения отчетов -->
+    <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
+    <script>
+      // Создаем глобальный объект process для совместимости с кодом, использующим process.env
+      window.process = {
+        env: {
+          NODE_ENV: 'production',
+          API_KEY: '' // Будет подставлено из окружения при сборке
+        }
+      };
+    </script>
+    <script type="importmap">
 {
   "imports": {
-    "react": "https://esm.sh/react@^19.2.4",
-    "react/": "https://esm.sh/react@^19.2.4/",
+    "react": "https://esm.sh/react@19.0.0",
+    "react-dom": "https://esm.sh/react-dom@19.0.0",
+    "react-dom/client": "https://esm.sh/react-dom@19.0.0/client",
+    "@google/genai": "https://esm.sh/@google/genai@1.39.0",
     "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
-    "@google/genai": "https://esm.sh/@google/genai@^1.39.0"
+    "react/": "https://esm.sh/react@^19.2.4/",
+    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.3",
+    "vite": "https://esm.sh/vite@^7.3.1"
   }
 }
 </script>
 </head>
 <body class="bg-gray-50 text-gray-900 font-sans">
     <div id="root"></div>
+    <!-- Точка входа в приложение -->
+    <script type="module" src="/index.tsx"></script>
 </body>
 </html>
