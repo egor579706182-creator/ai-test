@@ -27,11 +27,20 @@ const App: React.FC = () => {
       setReport(result);
       setStatus(AnalysisStatus.SUCCESS);
     } catch (err: any) {
-      console.error(err);
-      let errorMsg = err.message || 'Неизвестная ошибка';
+      console.error("Full Error object:", err);
       
-      if (errorMsg.includes('RESOURCE_EXHAUSTED') || errorMsg.includes('429')) {
-        errorMsg = 'Квота API временно исчерпана. Нейросеть перегружена из-за объема данных. Пожалуйста, подождите 60 секунд и нажмите кнопку снова. Не нужно перезагружать страницу.';
+      let errorMsg = "Произошла ошибка при анализе.";
+      const rawError = err.message || String(err);
+
+      // Пытаемся распарсить JSON если пришла строка-объект
+      if (rawError.includes('503') || rawError.includes('UNAVAILABLE') || rawError.includes('overloaded')) {
+        errorMsg = "Сервер нейросети временно перегружен запросами (ошибка 503). На мобильных устройствах это происходит чаще из-за размера файлов. Пожалуйста, подождите немного и нажмите 'Попробовать снова'.";
+      } else if (rawError.includes('429') || rawError.includes('quota')) {
+        errorMsg = "Превышена квота бесплатных запросов. Пожалуйста, попробуйте через 1-2 минуты.";
+      } else if (rawError.includes('400')) {
+        errorMsg = "Ошибка в данных. Возможно, файл слишком большой или формат не поддерживается.";
+      } else {
+        errorMsg = rawError;
       }
       
       setError(errorMsg);
@@ -40,18 +49,18 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 py-10 px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-gray-50 py-6 px-4 sm:py-10 sm:px-6 lg:px-8">
       <div className="max-w-4xl mx-auto">
-        <header className="mb-10 text-center">
-          <h1 className="text-3xl font-extrabold text-gray-900 tracking-tight">
-            Диагностический помощник развития ребенка
+        <header className="mb-8 text-center">
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-900 tracking-tight">
+            Диагностический помощник
           </h1>
-          <p className="mt-2 text-gray-600">
-            Мультимодальный анализ (видео, аудио, документы) для выявления особенностей развития.
+          <p className="mt-2 text-sm sm:text-base text-gray-600">
+            Мультимодальный анализ развития ребенка
           </p>
         </header>
 
-        <main className="space-y-8">
+        <main className="space-y-6">
           <section>
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-lg font-semibold text-gray-700">1. Загрузка данных</h2>
@@ -61,6 +70,7 @@ const App: React.FC = () => {
                     setFiles([]);
                     setReport(null);
                     setStatus(AnalysisStatus.IDLE);
+                    setError(null);
                   }}
                   className="text-sm text-red-600 hover:underline"
                 >
@@ -69,31 +79,30 @@ const App: React.FC = () => {
               )}
             </div>
             <FileUploader files={files} onFilesChange={setFiles} />
-            <p className="mt-2 text-xs text-gray-500 italic">
-              * При загрузке тяжелых видео (более 50-100 МБ) вероятность превышения квот выше. 
-              Старайтесь использовать короткие, информативные фрагменты.
+            <p className="mt-2 text-[10px] sm:text-xs text-gray-500 italic">
+              * Мобильные видео могут быть очень тяжелыми. Если возникает ошибка 503, попробуйте загрузить более короткий фрагмент или использовать Wi-Fi.
             </p>
           </section>
 
           <section className="space-y-4">
             {status === AnalysisStatus.LOADING ? (
-              <div className="flex flex-col items-center space-y-4">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+              <div className="flex flex-col items-center py-6 space-y-4">
+                <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600"></div>
                 <div className="text-center">
                   <p className="text-blue-600 font-medium animate-pulse">
                     {currentMode === AnalysisMode.DIAGNOSTIC 
-                      ? "Идет глубокий диагностический анализ..." 
-                      : "Идет детальное описание наблюдений..."}
+                      ? "Анализируем данные..." 
+                      : "Описываем наблюдения..."}
                   </p>
-                  <p className="text-gray-400 text-sm">Обработка видео и аудио может занять некоторое время.</p>
+                  <p className="text-gray-400 text-xs mt-1">Это может занять до 30-60 секунд</p>
                 </div>
               </div>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-2xl mx-auto">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 max-w-2xl mx-auto">
                 <button
                   onClick={() => startAnalysis(AnalysisMode.DIAGNOSTIC)}
                   disabled={files.length === 0}
-                  className={`py-4 px-6 rounded-lg font-bold text-white transition shadow-lg ${
+                  className={`py-4 px-4 rounded-xl font-bold text-white transition shadow-md touch-manipulation ${
                     files.length === 0 
                     ? 'bg-gray-400 cursor-not-allowed' 
                     : 'bg-indigo-600 hover:bg-indigo-700 active:scale-95'
@@ -105,7 +114,7 @@ const App: React.FC = () => {
                 <button
                   onClick={() => startAnalysis(AnalysisMode.OBSERVATION)}
                   disabled={files.length === 0}
-                  className={`py-4 px-6 rounded-lg font-bold text-white transition shadow-lg ${
+                  className={`py-4 px-4 rounded-xl font-bold text-white transition shadow-md touch-manipulation ${
                     files.length === 0 
                     ? 'bg-gray-400 cursor-not-allowed' 
                     : 'bg-emerald-600 hover:bg-emerald-700 active:scale-95'
@@ -115,16 +124,10 @@ const App: React.FC = () => {
                 </button>
               </div>
             )}
-            
-            {!status || status === AnalysisStatus.IDLE || status === AnalysisStatus.SUCCESS ? (
-              <p className="text-center text-xs text-gray-400">
-                Выберите тип анализа: диагностический отчет или чистое описание поведения.
-              </p>
-            ) : null}
           </section>
 
           {error && (
-            <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded shadow-sm">
+            <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded shadow-sm animate-in fade-in slide-in-from-top-2">
               <div className="flex">
                 <div className="flex-shrink-0">
                   <svg className="h-5 w-5 text-red-500" viewBox="0 0 20 20" fill="currentColor">
@@ -132,26 +135,25 @@ const App: React.FC = () => {
                   </svg>
                 </div>
                 <div className="ml-3">
-                  <h3 className="text-sm font-bold text-red-800 uppercase">Ошибка</h3>
-                  <p className="text-sm text-red-700 mt-1">{error}</p>
+                  <h3 className="text-sm font-bold text-red-800 uppercase">Внимание</h3>
+                  <p className="text-sm text-red-700 mt-1 leading-relaxed">{error}</p>
                 </div>
               </div>
             </div>
           )}
 
           {status === AnalysisStatus.SUCCESS && report && (
-            <div className="border-t-2 border-gray-100 pt-4">
-              <div className="mb-4 inline-block bg-gray-100 rounded px-3 py-1 text-xs font-semibold text-gray-600">
-                Режим: {currentMode === AnalysisMode.DIAGNOSTIC ? "Клиническая диагностика" : "Подробное наблюдение"}
+            <div className="border-t-2 border-gray-100 pt-6 animate-in zoom-in-95 duration-300">
+              <div className="mb-4 inline-block bg-gray-100 rounded-full px-4 py-1 text-[10px] font-bold uppercase tracking-wider text-gray-600">
+                {currentMode === AnalysisMode.DIAGNOSTIC ? "Клиническая диагностика" : "Подробное наблюдение"}
               </div>
               <AnalysisDisplay report={report} />
             </div>
           )}
         </main>
 
-        <footer className="mt-20 pt-10 border-t border-gray-200 text-center text-gray-400 text-xs">
-          <p>Инструмент для профессиональной оценки. Не заменяет очного обследования врача.</p>
-          <p className="mt-1">Используется оптимизированная модель: Gemini 3 Flash Preview</p>
+        <footer className="mt-16 pt-8 border-t border-gray-200 text-center text-gray-400 text-[10px] sm:text-xs">
+          <p>Инструмент для специалистов. Не является окончательным диагнозом.</p>
         </footer>
       </div>
     </div>
