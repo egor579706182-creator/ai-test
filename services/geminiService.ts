@@ -38,8 +38,8 @@ export const performMultimodalAnalysis = async (
   mode: AnalysisMode = AnalysisMode.DIAGNOSTIC,
   retryCount = 0
 ): Promise<string> => {
-  // Переходим на Flash для всех режимов, так как у Pro лимит "0" на бесплатном тарифе
-  const modelName = 'gemini-3-flash-preview';
+  // Возвращаем Pro для диагностики для максимальной глубины анализа
+  const modelName = mode === AnalysisMode.DIAGNOSTIC ? 'gemini-3-pro-preview' : 'gemini-3-flash-preview';
   
   const apiKey = process.env.API_KEY;
   if (!apiKey) {
@@ -81,8 +81,8 @@ export const performMultimodalAnalysis = async (
     }
 
     const systemInstruction = mode === AnalysisMode.DIAGNOSTIC 
-      ? "Вы — ведущий нейропсихолог. Проанализируйте видео ребенка, опираясь на загруженные методические документы. Дайте экспертное заключение."
-      : "Подробно опишите поведение и коммуникацию ребенка на видео для протокола наблюдения.";
+      ? "ВЫ — ВЕДУЩИЙ ЭКСПЕРТ-НЕЙРОПСИХОЛОГ. Проведите глубокий мультимодальный анализ видео ребенка. Используйте предоставленную базу знаний как эталон. Ваш отчет должен быть максимально детальным, структурированным и профессиональным. Сравнивайте поведение на видео с клиническими нормами из документов."
+      : "Подробно опишите поведение, мимику, жесты и коммуникативные акты ребенка на видео для протокола наблюдения.";
 
     const response = await ai.models.generateContent({
       model: modelName,
@@ -95,8 +95,10 @@ export const performMultimodalAnalysis = async (
       },
       config: {
         temperature: 0.1,
-        // Оставляем небольшой бюджет на "размышление" для Flash
-        thinkingConfig: { thinkingBudget: mode === AnalysisMode.DIAGNOSTIC ? 2000 : 0 }
+        // Для Pro-модели используем максимальный бюджет на размышление для глубокой аналитики
+        thinkingConfig: { 
+          thinkingBudget: mode === AnalysisMode.DIAGNOSTIC ? 32768 : 0 
+        }
       }
     });
 
@@ -104,14 +106,16 @@ export const performMultimodalAnalysis = async (
   } catch (error: any) {
     const errorMsg = error.message || String(error);
     
-    // Если всё равно получаем 429, пробуем повторить через паузу
+    // Обработка лимитов (429) с ожиданием
     if ((errorMsg.includes('429') || errorMsg.includes('quota')) && retryCount < 2) {
-      await wait(5000 * (retryCount + 1));
+      // Увеличиваем время ожидания при повторах (экспоненциальный бэк-офф)
+      const waitTime = mode === AnalysisMode.DIAGNOSTIC ? 30000 : 10000; 
+      await wait(waitTime * (retryCount + 1));
       return performMultimodalAnalysis(patientFiles, knowledgeFiles, mode, retryCount + 1);
     }
     
     if (errorMsg.includes('429')) {
-      throw new Error("Превышен лимит запросов Google API. Пожалуйста, подождите 1 минуту или перейдите на платный тариф.");
+      throw new Error("Превышена квота на использование Pro-модели. Пожалуйста, подождите несколько минут или попробуйте режим 'Наблюдение'.");
     }
     
     throw error;
