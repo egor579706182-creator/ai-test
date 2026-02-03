@@ -8,18 +8,26 @@ interface FileUploaderProps {
   isCloudActive?: boolean;
 }
 
+const SUPPORTED_MIME_TYPES = [
+  'application/pdf', 'text/plain', 'image/png', 'image/jpeg', 'image/webp',
+  'video/mp4', 'video/mpeg', 'video/mov', 'video/quicktime', 'video/avi', 'video/webm',
+  'audio/wav', 'audio/mp3'
+];
+
 const FileUploader: React.FC<FileUploaderProps> = ({ files, onFilesChange, isCloudActive }) => {
-  const [sizeWarning, setSizeWarning] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files) return;
-    setSizeWarning(null);
+    setError(null);
 
     const rawFiles: File[] = Array.from(e.target.files);
-    const totalSize = rawFiles.reduce((acc: number, f: File) => acc + f.size, 0);
     
-    if (totalSize > 50 * 1024 * 1024) {
-      setSizeWarning("Внимание: Общий размер файлов более 50МБ. Это может замедлить работу.");
+    // Проверка на неподдерживаемые форматы (Word, Excel и т.д.)
+    const unsupported = rawFiles.filter(f => f.name.endsWith('.doc') || f.name.endsWith('.docx') || f.name.endsWith('.xls') || f.name.endsWith('.xlsx'));
+    if (unsupported.length > 0) {
+      setError(`Файлы Word/Excel (${unsupported.map(f => f.name).join(', ')}) пока не поддерживаются. Пожалуйста, сохраните их как PDF.`);
+      return;
     }
 
     const newFiles: AnalysisFile[] = await Promise.all(
@@ -72,7 +80,7 @@ const FileUploader: React.FC<FileUploaderProps> = ({ files, onFilesChange, isClo
           onChange={handleFileChange}
           className="hidden"
           id={`file-upload-${Math.random()}`}
-          accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt"
+          accept="image/*,video/*,audio/*,.pdf,.txt"
         />
         <label
           htmlFor={document.querySelector('input[type="file"]')?.id || "file-upload"}
@@ -89,14 +97,14 @@ const FileUploader: React.FC<FileUploaderProps> = ({ files, onFilesChange, isClo
           </div>
           <div className="text-center">
             <span className="text-slate-700 font-bold block text-sm">Добавить материалы</span>
-            <span className="text-slate-400 text-[10px] uppercase tracking-wider font-bold">Видео, фото или документы</span>
+            <span className="text-slate-400 text-[10px] uppercase tracking-wider font-bold">PDF, Видео (MP4, MOV), фото или аудио</span>
           </div>
         </label>
       </div>
 
-      {sizeWarning && (
-        <div className="text-[10px] text-amber-700 bg-amber-50 p-3 rounded-2xl border border-amber-100 font-bold">
-          ⚠️ {sizeWarning}
+      {error && (
+        <div className="text-[11px] text-rose-600 bg-rose-50 p-4 rounded-2xl border border-rose-100 font-bold leading-relaxed">
+          ⚠️ {error}
         </div>
       )}
 
@@ -112,7 +120,7 @@ const FileUploader: React.FC<FileUploaderProps> = ({ files, onFilesChange, isClo
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-bold truncate text-slate-700">{f.file.name}</span>
                     {isCloudActive && (
-                      <span className="text-[10px] opacity-60" title="Синхронизировано с облаком">☁️</span>
+                      <span className="text-[10px] opacity-60" title="Синхронизировано">☁️</span>
                     )}
                   </div>
                   <span className="text-[10px] font-black text-slate-300 uppercase">{(f.file.size / (1024 * 1024)).toFixed(2)} MB</span>

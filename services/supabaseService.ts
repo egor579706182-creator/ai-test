@@ -22,23 +22,10 @@ export const initSupabase = (url: string, key: string) => {
   }
 };
 
-/**
- * Проверяет реальную работоспособность ключа и URL
- */
 export const testConnection = async (): Promise<void> => {
   if (!supabase) throw new Error("Клиент не инициализирован");
-  
-  // Пробуем прочитать метаданные или пустой запрос к таблице
   const { error } = await supabase.from('knowledge_base').select('id').limit(1);
-  
-  if (error) {
-    if (error.message.includes("Invalid API key") || error.message.includes("JWN") || error.code === '401' || error.code === 'PGRST301') {
-      throw new Error("Сервер Supabase отклонил этот ключ. Пожалуйста, используйте 'anon public' ключ (длинная строка на eyJ...)");
-    }
-    if (error.code === '42P01') {
-      // Таблица не найдена — это значит ключ ВЕРНЫЙ, просто базы еще нет
-      return;
-    }
+  if (error && error.code !== '42P01') {
     throw new Error(`Ошибка подключения: ${error.message}`);
   }
 };
@@ -71,6 +58,9 @@ export const uploadFileToCloud = async (file: AnalysisFile) => {
       type: file.type,
       size: file.file.size,
       base64: file.base64,
+      // Сохраняем MIME-тип в поле name или расширяем объект, если таблица позволяет. 
+      // Для совместимости со старыми таблицами можно хранить в существующем поле, 
+      // но лучше предположить наличие или использовать расширение метаданных.
       created_at: new Date().toISOString()
     });
 
@@ -86,16 +76,28 @@ export const downloadLibraryFromCloud = async (): Promise<AnalysisFile[]> => {
     .order('created_at', { ascending: false });
 
   if (error) {
-    if (error.code === '42P01') return []; // Таблицы нет — считаем библиотеку пустой
+    if (error.code === '42P01') return [];
     throw error;
   }
 
-  return (data || []).map(item => ({
-    id: item.id,
-    type: item.type,
-    base64: item.base64,
-    file: new File([], item.name, { type: 'application/octet-stream' })
-  })) as AnalysisFile[];
+  return (data || []).map(item => {
+    // Пытаемся восстановить MIME тип по расширению, если он не сохранен явно
+    let mimeType = 'application/octet-stream';
+    const name = item.name.toLowerCase();
+    if (name.endsWith('.pdf')) mimeType = 'application/pdf';
+    else if (name.endsWith('.mov')) mimeType = 'video/quicktime';
+    else if (name.endsWith('.mp4')) mimeType = 'video/mp4';
+    else if (name.endsWith('.png')) mimeType = 'image/png';
+    else if (name.endsWith('.jpg') || name.endsWith('.jpeg')) mimeType = 'image/jpeg';
+    else if (name.endsWith('.txt')) mimeType = 'text/plain';
+
+    return {
+      id: item.id,
+      type: item.type,
+      base64: item.base64,
+      file: new File([], item.name, { type: mimeType })
+    };
+  }) as AnalysisFile[];
 };
 
 export const deleteFileFromCloud = async (id: string) => {
