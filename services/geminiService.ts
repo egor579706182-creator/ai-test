@@ -4,7 +4,6 @@ import { AnalysisFile, AnalysisMode } from "../types";
 
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-// Список форматов, которые Gemini гарантированно принимает как inlineData
 const SUPPORTED_MIME_TYPES = [
   'application/pdf',
   'text/plain',
@@ -18,7 +17,7 @@ const SUPPORTED_MIME_TYPES = [
   'video/mp4',
   'video/mpeg',
   'video/mov',
-  'video/quicktime', // Добавлено для корректной поддержки .MOV на Apple
+  'video/quicktime',
   'video/avi',
   'video/x-flv',
   'video/mpg',
@@ -39,11 +38,17 @@ export const performMultimodalAnalysis = async (
   mode: AnalysisMode = AnalysisMode.DIAGNOSTIC,
   retryCount = 0
 ): Promise<string> => {
-  const modelName = mode === AnalysisMode.DIAGNOSTIC ? 'gemini-3-pro-preview' : 'gemini-3-flash-preview';
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  // Переходим на Flash для всех режимов, так как у Pro лимит "0" на бесплатном тарифе
+  const modelName = 'gemini-3-flash-preview';
+  
+  const apiKey = process.env.API_KEY;
+  if (!apiKey) {
+    throw new Error("API ключ не настроен в переменных окружения Vercel.");
+  }
+
+  const ai = new GoogleGenAI({ apiKey });
 
   try {
-    // Подготовка файлов пациента
     const patientParts = patientFiles
       .filter(f => SUPPORTED_MIME_TYPES.includes(f.file.type))
       .map(f => ({
@@ -53,8 +58,6 @@ export const performMultimodalAnalysis = async (
         },
       }));
 
-    // Подготовка файлов базы знаний
-    // Если тип application/octet-stream (из облака), пробуем определить по расширению
     const knowledgeParts = knowledgeFiles
       .map(f => {
         let mimeType = f.file.type;
@@ -74,28 +77,12 @@ export const performMultimodalAnalysis = async (
       }));
 
     if (patientParts.length === 0) {
-      const detectedTypes = patientFiles.map(f => `${f.file.name} (${f.file.type})`).join(', ');
-      throw new Error(`Нет подходящих файлов пациента. Gemini не поддерживает эти типы: ${detectedTypes}. Попробуйте конвертировать видео в стандартный MP4 или убедитесь, что это поддерживаемый MOV.`);
+      throw new Error("Не удалось загрузить видео пациента. Проверьте формат файла.");
     }
 
-    let systemInstruction = "";
-
-    if (mode === AnalysisMode.DIAGNOSTIC) {
-      systemInstruction = `
-        ВЫ — ВЕДУЩИЙ ЭКСПЕРТ-НЕЙРОПСИХОЛОГ И ДИАГНОСТ.
-        
-        ОБЪЕКТ АНАЛИЗА: Видеоматериал пациента.
-        КОНТЕКСТ: Загруженные справочные материалы (База знаний).
-        
-        ВАША ЗАДАЧА:
-        1. Провести детальный посекундный анализ видео.
-        2. ИСПОЛЬЗОВАНИЕ БАЗЫ ЗНАНИЙ: Обязательно ссылайтесь на конкретные протоколы из загруженных документов.
-        
-        СТРУКТУРА ОТЧЕТА: Резюме, Детальный разбор, Соответствие критериям, Рекомендации.
-      `;
-    } else {
-      systemInstruction = "Вы ассистент по наблюдению. Подробно опишите действия на видео.";
-    }
+    const systemInstruction = mode === AnalysisMode.DIAGNOSTIC 
+      ? "Вы — ведущий нейропсихолог. Проанализируйте видео ребенка, опираясь на загруженные методические документы. Дайте экспертное заключение."
+      : "Подробно опишите поведение и коммуникацию ребенка на видео для протокола наблюдения.";
 
     const response = await ai.models.generateContent({
       model: modelName,
@@ -103,23 +90,30 @@ export const performMultimodalAnalysis = async (
         parts: [
           ...knowledgeParts,
           ...patientParts,
-          { text: systemInstruction },
-          { text: "Проанализируй предоставленные материалы." }
+          { text: systemInstruction }
         ]
       },
       config: {
         temperature: 0.1,
-        thinkingConfig: { thinkingBudget: mode === AnalysisMode.DIAGNOSTIC ? 4000 : 0 }
+        // Оставляем небольшой бюджет на "размышление" для Flash
+        thinkingConfig: { thinkingBudget: mode === AnalysisMode.DIAGNOSTIC ? 2000 : 0 }
       }
     });
 
-    return response.text || "Ошибка получения ответа.";
+    return response.text || "Модель не вернула текст. Попробуйте еще раз.";
   } catch (error: any) {
-    const errorStr = String(error);
-    if ((errorStr.includes('429') || errorStr.includes('503')) && retryCount < 3) {
-      await wait(3000 * (retryCount + 1));
+    const errorMsg = error.message || String(error);
+    
+    // Если всё равно получаем 429, пробуем повторить через паузу
+    if ((errorMsg.includes('429') || errorMsg.includes('quota')) && retryCount < 2) {
+      await wait(5000 * (retryCount + 1));
       return performMultimodalAnalysis(patientFiles, knowledgeFiles, mode, retryCount + 1);
     }
-    throw new Error(`Ошибка анализа: ${error.message || errorStr}`);
+    
+    if (errorMsg.includes('429')) {
+      throw new Error("Превышен лимит запросов Google API. Пожалуйста, подождите 1 минуту или перейдите на платный тариф.");
+    }
+    
+    throw error;
   }
 };
