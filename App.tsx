@@ -1,160 +1,247 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { AnalysisFile, AnalysisStatus, AnalysisMode } from './types';
 import FileUploader from './components/FileUploader';
 import AnalysisDisplay from './components/AnalysisDisplay';
 import { performMultimodalAnalysis } from './services/geminiService';
+import { getAllKnowledgeFiles, saveKnowledgeFile, deleteKnowledgeFile } from './services/storageService';
+import * as cloud from './services/supabaseService';
 
 const App: React.FC = () => {
-  const [files, setFiles] = useState<AnalysisFile[]>([]);
+  const [patientFiles, setPatientFiles] = useState<AnalysisFile[]>([]);
+  const [knowledgeFiles, setKnowledgeFiles] = useState<AnalysisFile[]>([]);
   const [status, setStatus] = useState<AnalysisStatus>(AnalysisStatus.IDLE);
   const [report, setReport] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [currentMode, setCurrentMode] = useState<AnalysisMode | null>(null);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
+  const [isDbLoading, setIsDbLoading] = useState(true);
+  const [showSettings, setShowSettings] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
+  const [isCloudActive, setIsCloudActive] = useState(false);
+
+  const refreshCloudConnection = useCallback(async (test = false) => {
+    const { url, key } = cloud.getSupabaseConfig();
+    
+    if (url && key) {
+      try {
+        cloud.initSupabase(url, key);
+        if (test) {
+          await cloud.testConnection();
+        }
+        setIsSyncing(true);
+        const cloudFiles = await cloud.downloadLibraryFromCloud();
+        setKnowledgeFiles(cloudFiles);
+        setIsCloudActive(true);
+        setSettingsError(null);
+        return true;
+      } catch (err: any) {
+        setIsCloudActive(false);
+        throw err;
+      } finally {
+        setIsSyncing(false);
+      }
+    } else {
+      const localFiles = await getAllKnowledgeFiles();
+      setKnowledgeFiles(localFiles);
+      setIsCloudActive(false);
+      return false;
+    }
+  }, []);
+
+  useEffect(() => {
+    const init = async () => {
+      setIsDbLoading(true);
+      try { await refreshCloudConnection(); } catch (e) {}
+      setIsDbLoading(false);
+    };
+    init();
+  }, [refreshCloudConnection]);
+
+  const saveCloudSettings = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setIsSavingSettings(true);
+    setSettingsError(null);
+
+    const formData = new FormData(e.currentTarget);
+    const url = (formData.get('url') as string).trim();
+    const key = (formData.get('key') as string).trim();
+    
+    try {
+      cloud.saveSupabaseConfig(url, key);
+      await refreshCloudConnection(true);
+      setShowSettings(false);
+    } catch (err: any) {
+      setSettingsError(err.message);
+    } finally {
+      setIsSavingSettings(false);
+    }
+  };
+
+  const handleKnowledgeChange = async (newFiles: AnalysisFile[]) => {
+    setError(null);
+    const oldIds = new Set(knowledgeFiles.map(f => f.id));
+    const newIds = new Set(newFiles.map(f => f.id));
+
+    // Добавленные
+    const added = newFiles.filter(f => !oldIds.has(f.id));
+    for (const f of added) {
+      try {
+        if (isCloudActive) await cloud.uploadFileToCloud(f);
+        await saveKnowledgeFile(f);
+      } catch (e: any) {
+        setError(`Ошибка синхронизации: ${e.message}`);
+      }
+    }
+
+    // Удаленные
+    const removed = knowledgeFiles.filter(f => !newIds.has(f.id));
+    for (const f of removed) {
+      try {
+        if (isCloudActive) await cloud.deleteFileFromCloud(f.id);
+        await deleteKnowledgeFile(f.id);
+      } catch (e) {}
+    }
+
+    setKnowledgeFiles(newFiles);
+  };
 
   const startAnalysis = async (mode: AnalysisMode) => {
-    if (files.length === 0) {
-      setError('Пожалуйста, загрузите хотя бы один файл.');
+    if (patientFiles.length === 0) {
+      setError("Пожалуйста, загрузите видео пациента для анализа.");
       return;
     }
 
     setStatus(AnalysisStatus.LOADING);
-    setCurrentMode(mode);
     setError(null);
+    setReport(null);
 
     try {
-      const result = await performMultimodalAnalysis(files, mode);
+      const result = await performMultimodalAnalysis(patientFiles, knowledgeFiles, mode);
       setReport(result);
       setStatus(AnalysisStatus.SUCCESS);
     } catch (err: any) {
-      console.error("Full Error object:", err);
-      
-      let errorMsg = "Произошла ошибка при анализе.";
-      const rawError = err.message || String(err);
-
-      if (rawError.toLowerCase().includes('load failed') || rawError.toLowerCase().includes('fetch')) {
-        errorMsg = "Ошибка передачи данных (Load Failed). Это часто происходит на iPhone при загрузке видео через медленный интернет или если файл слишком большой. Попробуйте использовать Wi-Fi или загрузить более короткий ролик.";
-      } else if (rawError.includes('503') || rawError.includes('UNAVAILABLE') || rawError.includes('overloaded')) {
-        errorMsg = "Сервер нейросети временно перегружен. На мобильных устройствах это происходит чаще. Пожалуйста, попробуйте еще раз через минуту.";
-      } else if (rawError.includes('429') || rawError.includes('quota')) {
-        errorMsg = "Превышена квота запросов. Пожалуйста, попробуйте через 2-3 минуты.";
-      } else {
-        errorMsg = rawError;
-      }
-      
-      setError(errorMsg);
       setStatus(AnalysisStatus.ERROR);
+      setError(err.message || "Произошла ошибка при анализе.");
     }
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 py-6 px-4 sm:py-10 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-slate-50 py-6 px-4 pb-32 font-sans selection:bg-indigo-100">
       <div className="max-w-4xl mx-auto">
-        <header className="mb-8 text-center">
-          <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-900 tracking-tight">
-            Диагностический помощник
-          </h1>
-          <p className="mt-2 text-sm sm:text-base text-gray-600 font-medium">
-            Анализ развития ребенка (Gemini Flash)
-          </p>
+        <header className="mb-8 flex items-center justify-between bg-white p-5 rounded-[2.5rem] shadow-sm border border-slate-100">
+          <div className="flex flex-col ml-2">
+            <h1 className="text-xl font-black text-slate-800 uppercase tracking-tighter">PRO Диагностика</h1>
+            <div className="flex items-center gap-2 mt-1">
+               <span className={`w-2 h-2 rounded-full ${isCloudActive ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`}></span>
+               <span className={`text-[9px] font-black uppercase tracking-widest ${isCloudActive ? 'text-emerald-600' : 'text-slate-400'}`}>
+                 {isSyncing ? 'Синхронизация...' : isCloudActive ? 'Облако активно' : 'Локальный режим'}
+               </span>
+            </div>
+          </div>
+          <button onClick={() => { setSettingsError(null); setShowSettings(true); }} className="w-12 h-12 flex items-center justify-center bg-slate-50 rounded-[1.2rem] hover:bg-slate-100 transition-all border border-slate-100 shadow-inner active:scale-90">
+            <span className="text-xl">⚙️</span>
+          </button>
         </header>
 
-        <main className="space-y-6">
-          <section>
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-lg font-bold text-gray-800 tracking-tight">1. Загрузка данных</h2>
-              {files.length > 0 && (
+        {showSettings && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-md">
+            <div className="bg-white w-full max-w-lg rounded-[3rem] p-8 shadow-2xl relative animate-in zoom-in-95 duration-200">
+              <button onClick={() => setShowSettings(false)} className="absolute top-8 right-8 text-slate-300 hover:text-slate-600 font-bold text-2xl">✕</button>
+              
+              <h3 className="text-xl font-black text-slate-800 uppercase mb-2 flex items-center gap-3">
+                <span>☁️</span> Настройка Облака
+              </h3>
+              <p className="text-[10px] text-slate-400 font-bold uppercase mb-6 tracking-wide leading-relaxed">
+                Синхронизация позволяет хранить ваши методические материалы в безопасности и открывать их на любом устройстве.
+              </p>
+
+              <form onSubmit={saveCloudSettings} className="space-y-6">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Project URL</label>
+                  <input name="url" defaultValue={cloud.getSupabaseConfig().url || ''} placeholder="https://...supabase.co" required className="w-full bg-slate-50 border border-slate-200 p-4 rounded-2xl text-sm outline-none focus:ring-4 focus:ring-indigo-100 transition-all font-medium" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-slate-400 uppercase ml-1">API Key (anon public)</label>
+                  <input name="key" type="password" defaultValue={cloud.getSupabaseConfig().key || ''} placeholder="eyJ..." required className="w-full bg-slate-50 border border-slate-200 p-4 rounded-2xl text-sm outline-none focus:ring-4 focus:ring-indigo-100 transition-all font-medium" />
+                </div>
+                {settingsError && <div className="bg-rose-50 border border-rose-100 text-rose-600 p-4 rounded-2xl text-[10px] font-bold animate-pulse">❌ {settingsError}</div>}
+                
+                <div className="pt-2">
+                  <button type="submit" disabled={isSavingSettings} className="w-full bg-indigo-600 text-white py-5 rounded-[1.5rem] font-black text-xs uppercase tracking-widest shadow-xl shadow-indigo-100 hover:bg-indigo-700 active:scale-95 transition-all disabled:bg-slate-300">
+                    {isSavingSettings ? '⌛ Проверка связи...' : '💾 Подключить и синхронизировать'}
+                  </button>
+                </div>
+              </form>
+
+              <div className="mt-8 pt-6 border-t border-slate-100 flex flex-col items-center gap-4">
                 <button 
-                  onClick={() => {
-                    setFiles([]);
-                    setReport(null);
-                    setStatus(AnalysisStatus.IDLE);
-                    setError(null);
+                  onClick={async () => { 
+                    cloud.clearSupabaseConfig(); 
+                    await refreshCloudConnection();
+                    setShowSettings(false);
                   }}
-                  className="text-xs font-bold text-red-500 uppercase tracking-wider hover:bg-red-50 px-2 py-1 rounded"
+                  className="text-[10px] text-slate-400 font-bold uppercase hover:text-rose-500 transition-colors"
                 >
-                  Очистить всё
+                  Вернуться в локальный режим
                 </button>
-              )}
+              </div>
             </div>
-            <FileUploader files={files} onFilesChange={setFiles} />
-          </section>
+          </div>
+        )}
 
-          <section className="space-y-4">
-            {status === AnalysisStatus.LOADING ? (
-              <div className="flex flex-col items-center py-8 space-y-4 bg-white rounded-2xl shadow-sm border border-blue-50">
-                <div className="relative">
-                  <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-100 border-t-blue-600"></div>
-                </div>
-                <div className="text-center">
-                  <p className="text-blue-600 font-bold">Идет обработка видео...</p>
-                  <p className="text-gray-400 text-[10px] mt-1 uppercase tracking-widest font-bold">Не закрывайте вкладку</p>
-                </div>
-              </div>
+        <main className="space-y-8">
+          <section className={`p-8 rounded-[3rem] border-2 border-dashed transition-all duration-500 ${isCloudActive ? 'bg-emerald-50/20 border-emerald-100' : 'bg-slate-100/50 border-slate-200'}`}>
+            <div className="flex items-center justify-between mb-6">
+              <h2 className={`text-xs font-black uppercase tracking-widest ${isCloudActive ? 'text-emerald-700' : 'text-slate-500'}`}>
+                {isCloudActive ? '☁️ Облачная библиотека' : '📚 Локальная библиотека'}
+              </h2>
+              {isCloudActive && <span className="bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full text-[9px] font-black uppercase">Синхронизировано</span>}
+            </div>
+            
+            {isDbLoading ? (
+              <div className="h-32 flex items-center justify-center text-[10px] font-black text-slate-300 uppercase animate-pulse">Загрузка базы данных...</div>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-2xl mx-auto">
-                <button
-                  onClick={() => startAnalysis(AnalysisMode.DIAGNOSTIC)}
-                  disabled={files.length === 0}
-                  className={`py-5 px-4 rounded-2xl font-black text-white transition-all shadow-lg active:scale-95 ${
-                    files.length === 0 
-                    ? 'bg-gray-300 shadow-none' 
-                    : 'bg-indigo-600 hover:bg-indigo-700'
-                  }`}
-                >
-                  {status === AnalysisStatus.ERROR && currentMode === AnalysisMode.DIAGNOSTIC ? 'ПОВТОРИТЬ ЗАПРОС' : 'ЗАПУСТИТЬ ДИАГНОСТИКУ'}
-                </button>
-
-                <button
-                  onClick={() => startAnalysis(AnalysisMode.OBSERVATION)}
-                  disabled={files.length === 0}
-                  className={`py-5 px-4 rounded-2xl font-black text-white transition-all shadow-lg active:scale-95 ${
-                    files.length === 0 
-                    ? 'bg-gray-300 shadow-none' 
-                    : 'bg-emerald-500 hover:bg-emerald-600'
-                  }`}
-                >
-                  {status === AnalysisStatus.ERROR && currentMode === AnalysisMode.OBSERVATION ? 'ПОВТОРИТЬ ЗАПРОС' : 'ОТЧЕТ О НАБЛЮДЕНИЯХ'}
-                </button>
-              </div>
+              <FileUploader files={knowledgeFiles} onFilesChange={handleKnowledgeChange} isCloudActive={isCloudActive} />
             )}
           </section>
 
+          <section className="bg-white p-8 rounded-[3rem] shadow-sm border border-slate-100">
+            <h2 className="text-xs font-black text-slate-800 uppercase tracking-widest mb-6 flex items-center gap-2">
+               <span className="text-lg">👤</span> Данные пациента
+            </h2>
+            <FileUploader files={patientFiles} onFilesChange={setPatientFiles} />
+          </section>
+
           {error && (
-            <div className="bg-red-50 border-2 border-red-100 p-4 rounded-2xl animate-in slide-in-from-bottom-4 duration-300">
-              <div className="flex">
-                <div className="bg-red-500 rounded-full p-1 h-fit">
-                  <svg className="h-4 w-4 text-white" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                  </svg>
-                </div>
-                <div className="ml-3">
-                  <h3 className="text-xs font-black text-red-800 uppercase tracking-wider">Ошибка загрузки</h3>
-                  <p className="text-sm text-red-700 mt-1 font-medium leading-relaxed">{error}</p>
-                </div>
-              </div>
+            <div className="bg-rose-50 border border-rose-100 text-rose-600 p-6 rounded-[2rem] text-xs font-bold shadow-sm animate-in slide-in-from-bottom-2">
+              ⚠️ {error}
             </div>
           )}
 
           {status === AnalysisStatus.SUCCESS && report && (
-            <div className="pt-6 animate-in fade-in duration-500">
-              <div className="mb-4 flex items-center space-x-2">
-                 <span className="h-2 w-2 rounded-full bg-green-500 animate-pulse"></span>
-                 <span className="text-[10px] font-black uppercase tracking-widest text-gray-500">
-                   {currentMode === AnalysisMode.DIAGNOSTIC ? "Результат диагностики" : "Протокол наблюдения"}
-                 </span>
-              </div>
-              <AnalysisDisplay report={report} />
-            </div>
+            <AnalysisDisplay report={report} />
           )}
         </main>
 
-        <footer className="mt-20 py-8 border-t border-gray-100 text-center">
-          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.2em] leading-loose">
-            Инструмент профессиональной оценки<br/>
-            Не заменяет очную консультацию специалиста
-          </p>
-        </footer>
+        <div className="fixed bottom-10 left-1/2 -translate-x-1/2 w-full max-w-md px-6 z-50">
+          <div className="grid grid-cols-2 gap-4 bg-slate-900/90 backdrop-blur-xl p-4 rounded-[2.5rem] shadow-2xl border border-white/10">
+            <button 
+              disabled={status === AnalysisStatus.LOADING} 
+              onClick={() => startAnalysis(AnalysisMode.DIAGNOSTIC)} 
+              className="bg-white text-slate-900 py-4 rounded-[1.5rem] font-black text-[10px] uppercase tracking-widest shadow-lg active:scale-90 transition-all disabled:opacity-50"
+            >
+              {status === AnalysisStatus.LOADING ? '⏳ Анализ...' : 'Диагностика'}
+            </button>
+            <button 
+              disabled={status === AnalysisStatus.LOADING} 
+              onClick={() => startAnalysis(AnalysisMode.OBSERVATION)} 
+              className="bg-indigo-600 text-white py-4 rounded-[1.5rem] font-black text-[10px] uppercase tracking-widest shadow-lg active:scale-90 transition-all disabled:opacity-50"
+            >
+              Наблюдение
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );

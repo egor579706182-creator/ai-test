@@ -6,14 +6,6 @@ export interface AnalysisFile {
   base64?: string;
 }
 
-export interface DiagnosticReport {
-  speechCommunication: string;
-  otherDevelopmentalAreas: string;
-  evidenceAndScenes: string;
-  conclusion: string;
-  bibliography: string;
-}
-
 export enum AnalysisStatus {
   IDLE = 'IDLE',
   LOADING = 'LOADING',

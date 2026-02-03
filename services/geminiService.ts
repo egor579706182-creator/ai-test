@@ -5,90 +5,101 @@ import { AnalysisFile, AnalysisMode } from "../types";
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 export const performMultimodalAnalysis = async (
-  files: AnalysisFile[], 
+  patientFiles: AnalysisFile[], 
+  knowledgeFiles: AnalysisFile[],
   mode: AnalysisMode = AnalysisMode.DIAGNOSTIC,
   retryCount = 0
 ): Promise<string> => {
-  // Создаем экземпляр прямо перед вызовом для актуальности ключа
+  // Используем Gemini 3 Pro для сложных диагностических задач
+  const modelName = mode === AnalysisMode.DIAGNOSTIC ? 'gemini-3-pro-preview' : 'gemini-3-flash-preview';
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
   try {
-    const parts = await Promise.all(
-      files.map(async (f) => {
-        if (!f.base64) return null;
-        return {
-          inlineData: {
-            mimeType: f.file.type,
-            data: f.base64.split(',')[1],
-          },
-        };
-      })
-    );
+    // Подготовка файлов пациента
+    const patientParts = patientFiles.map(f => ({
+      inlineData: {
+        mimeType: f.file.type || "video/mp4",
+        data: f.base64?.split(',')[1] || "",
+      },
+    }));
 
-    const filteredParts = parts.filter((p): p is { inlineData: { mimeType: string; data: string } } => p !== null);
+    // Подготовка файлов базы знаний
+    const knowledgeParts = knowledgeFiles.map(f => ({
+      inlineData: {
+        mimeType: f.file.type || "application/pdf",
+        data: f.base64?.split(',')[1] || "",
+      },
+    }));
 
-    let prompt = "";
+    let systemInstruction = "";
 
     if (mode === AnalysisMode.DIAGNOSTIC) {
-      prompt = `
-        Вы — высококвалифицированный клинический специалист по детскому нейроразвитию и диагностике. 
-        Проанализируйте предоставленные данные для выявления отклонений развития.
+      systemInstruction = `
+        ВЫ — ВЕДУЩИЙ ЭКСПЕРТ-НЕЙРОПСИХОЛОГ И ДИАГНОСТ.
+        
+        ОБЪЕКТ АНАЛИЗА: Видеоматериал пациента.
+        КОНТЕКСТ: Загруженные справочные материалы (База знаний).
+        
+        ВАША ЗАДАЧА:
+        1. Провести детальный посекундный анализ видео. Обращайте внимание на:
+           - Зрительный контакт и социальную улыбку.
+           - Реакцию на имя и разделенное внимание.
+           - Наличие стереотипий или необычных моторных реакций.
+           - Речевое развитие и вокализации.
+        
+        2. ИСПОЛЬЗОВАНИЕ БАЗЫ ЗНАНИЙ:
+           - Обязательно ссылайтесь на конкретные протоколы или критерии из загруженных вами документов.
+           - Сравнивайте наблюдаемое поведение с нормами, описанными в этих документах.
         
         СТРУКТУРА ОТЧЕТА:
-        1. Анализ речи и коммуникации (Критично!)
-        2. Общий анализ развития (Моторика, Когнитивная сфера, Сенсорика)
-        3. Лог доказательств со ссылками на время в видео
-        4. Заключение и список литературы (DSM-5, МКБ-11)
+        - Краткое резюме наблюдений.
+        - Детальный разбор по категориям (Коммуникация, Моторика, Социальное взаимодействие).
+        - Соответствие критериям из Базы Знаний.
+        - Рекомендации для специалиста.
+        
+        Стиль: Строгий, медицинский, доказательный.
       `;
     } else {
-      prompt = `
-        Вы — профессиональный ассистент-наблюдатель. Опишите портрет поведения ребенка до мельчайших деталей БЕЗ диагностики.
-        
-        ИНСТРУКЦИИ:
-        - Описывайте только факты: мимика, жесты, направление взгляда, звуки.
-        - КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО: Ставить диагнозы или использовать мед. термины (аутизм и т.д.).
-        - Цель: дать специалисту "сырой" материал для анализа.
+      systemInstruction = `
+        Вы ассистент по наблюдению. 
+        Опишите действия ребенка на видео, классифицируя их согласно структуре из ваших загруженных методических материалов.
+        Сфокусируйтесь на фактах: что ребенок делает, как долго, в какой последовательности.
       `;
     }
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: modelName,
       contents: {
         parts: [
-          ...filteredParts,
-          { text: prompt }
+          ...knowledgeParts,
+          ...patientParts,
+          { text: systemInstruction },
+          { text: "Пожалуйста, проанализируй прикрепленное видео пациента, опираясь на предоставленные научные материалы." }
         ]
       },
       config: {
-        temperature: 0.1,
-        topP: 0.95,
-        topK: 40,
+        temperature: 0.1, // Низкая температура для точности и отсутствия фантазий
+        thinkingConfig: { thinkingBudget: mode === AnalysisMode.DIAGNOSTIC ? 4000 : 0 } // Включаем "размышление" для диагностики
       }
     });
 
-    return response.text || "Не удалось получить текст ответа.";
+    return response.text || "Ошибка получения ответа от модели.";
   } catch (error: any) {
-    const errorStr = typeof error === 'object' ? JSON.stringify(error) : String(error);
-    const isRetryable = 
-      errorStr.includes('503') || 
-      errorStr.includes('504') || 
-      errorStr.includes('429') || 
-      errorStr.includes('overloaded') ||
-      errorStr.includes('UNAVAILABLE');
+    const errorStr = String(error);
+    console.error("Gemini Analysis Error:", error);
+    
+    const isRetryable = errorStr.includes('429') || errorStr.includes('503') || errorStr.includes('500');
 
     if (isRetryable && retryCount < 3) {
-      // Экспоненциальная задержка: 5с, 10с, 15с
-      const delay = 5000 * (retryCount + 1);
-      console.log(`Попытка ${retryCount + 1} через ${delay}мс...`);
+      const delay = 3000 * (retryCount + 1);
       await wait(delay);
-      return performMultimodalAnalysis(files, mode, retryCount + 1);
-    }
-
-    // Если это не ошибка перегрузки или попытки исчерпаны
-    if (errorStr.includes('503') || errorStr.includes('UNAVAILABLE')) {
-      throw new Error("Сервер Gemini временно перегружен. Это часто случается при загрузке видео с мобильных устройств. Пожалуйста, попробуйте еще раз через минуту.");
+      return performMultimodalAnalysis(patientFiles, knowledgeFiles, mode, retryCount + 1);
     }
     
-    throw error;
+    if (errorStr.includes('413')) {
+      throw new Error("Файлы слишком большие для анализа. Попробуйте загрузить видео меньшей длительности или в более низком разрешении.");
+    }
+    
+    throw new Error(`Ошибка анализа: ${error.message || errorStr}`);
   }
 };
