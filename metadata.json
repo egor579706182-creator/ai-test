@@ -1,0 +1,8 @@
+{
+  "name": "Child Development Diagnostic Assistant",
+  "description": "An advanced multimodal analysis tool for specialists to evaluate child developmental patterns, focusing on speech and communication through video, audio, and document analysis.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
