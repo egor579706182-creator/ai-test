@@ -8,12 +8,6 @@ interface FileUploaderProps {
   isCloudActive?: boolean;
 }
 
-const SUPPORTED_MIME_TYPES = [
-  'application/pdf', 'text/plain', 'image/png', 'image/jpeg', 'image/webp',
-  'video/mp4', 'video/mpeg', 'video/mov', 'video/quicktime', 'video/avi', 'video/webm',
-  'audio/wav', 'audio/mp3'
-];
-
 const FileUploader: React.FC<FileUploaderProps> = ({ files, onFilesChange, isCloudActive }) => {
   const [error, setError] = useState<string | null>(null);
 
@@ -22,23 +16,18 @@ const FileUploader: React.FC<FileUploaderProps> = ({ files, onFilesChange, isClo
     setError(null);
 
     const rawFiles: File[] = Array.from(e.target.files);
+    const unsupported = rawFiles.filter(f => f.name.endsWith('.doc') || f.name.endsWith('.docx'));
     
-    // Проверка на неподдерживаемые форматы (Word, Excel и т.д.)
-    const unsupported = rawFiles.filter(f => f.name.endsWith('.doc') || f.name.endsWith('.docx') || f.name.endsWith('.xls') || f.name.endsWith('.xlsx'));
     if (unsupported.length > 0) {
-      setError(`Файлы Word/Excel (${unsupported.map(f => f.name).join(', ')}) пока не поддерживаются. Пожалуйста, сохраните их как PDF.`);
+      setError("Файлы Word временно не поддерживаются. Пожалуйста, сохраните их в PDF.");
       return;
     }
 
     const newFiles: AnalysisFile[] = await Promise.all(
       rawFiles.map(async (file: File): Promise<AnalysisFile> => {
-        const type: 'image' | 'video' | 'audio' | 'document' = file.type.startsWith('image/') 
-          ? 'image' 
-          : file.type.startsWith('video/') 
-          ? 'video' 
-          : file.type.startsWith('audio/') 
-          ? 'audio' 
-          : 'document';
+        const type: any = file.type.startsWith('image/') ? 'image' : 
+                         file.type.startsWith('video/') ? 'video' : 
+                         file.type.startsWith('audio/') ? 'audio' : 'document';
 
         const base64 = await new Promise<string>((resolve) => {
           const reader = new FileReader();
@@ -48,7 +37,7 @@ const FileUploader: React.FC<FileUploaderProps> = ({ files, onFilesChange, isClo
 
         return {
           file,
-          id: Math.random().toString(36).substr(2, 9),
+          id: Math.random().toString(36).substring(7),
           type,
           base64
         };
@@ -64,75 +53,52 @@ const FileUploader: React.FC<FileUploaderProps> = ({ files, onFilesChange, isClo
 
   const getIcon = (type: string) => {
     switch(type) {
-      case 'video': return '🎥';
-      case 'image': return '🖼️';
-      case 'audio': return '🔊';
-      default: return '📄';
+      case 'video': return <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 00-2 2z" /></svg>;
+      case 'image': return <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>;
+      default: return <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>;
     }
   };
 
   return (
-    <div className="space-y-4">
-      <div className="border-2 border-dashed border-slate-200 rounded-[2rem] p-8 bg-slate-50/50 transition-all hover:border-indigo-300 hover:bg-indigo-50/30 group">
+    <div className="p-2 space-y-2">
+      <div className="relative group">
         <input
           type="file"
           multiple
           onChange={handleFileChange}
-          className="hidden"
-          id={`file-upload-${Math.random()}`}
+          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
           accept="image/*,video/*,audio/*,.pdf,.txt"
         />
-        <label
-          htmlFor={document.querySelector('input[type="file"]')?.id || "file-upload"}
-          className="cursor-pointer flex flex-col items-center justify-center space-y-4"
-          onClick={(e) => {
-            const input = e.currentTarget.previousElementSibling as HTMLInputElement;
-            input?.click();
-          }}
-        >
-          <div className="bg-white p-4 rounded-3xl shadow-sm group-hover:scale-110 transition-transform">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-            </svg>
-          </div>
-          <div className="text-center">
-            <span className="text-slate-700 font-bold block text-sm">Добавить материалы</span>
-            <span className="text-slate-400 text-[10px] uppercase tracking-wider font-bold">PDF, Видео (MP4, MOV), фото или аудио</span>
-          </div>
-        </label>
+        <div className="border border-slate-100 bg-slate-50/50 rounded-2xl py-8 px-6 flex flex-col items-center justify-center transition-all group-hover:bg-slate-50 group-hover:border-indigo-100">
+           <div className="w-10 h-10 bg-white rounded-xl shadow-sm flex items-center justify-center mb-3 text-indigo-500 group-hover:scale-110 transition-transform">
+             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
+           </div>
+           <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">Добавить файлы</p>
+        </div>
       </div>
 
-      {error && (
-        <div className="text-[11px] text-rose-600 bg-rose-50 p-4 rounded-2xl border border-rose-100 font-bold leading-relaxed">
-          ⚠️ {error}
-        </div>
-      )}
+      {error && <p className="text-[10px] font-bold text-rose-500 px-4 py-2 uppercase tracking-wide">{error}</p>}
 
       {files.length > 0 && (
-        <div className="grid grid-cols-1 gap-3">
+        <div className="grid gap-1 pt-2">
           {files.map((f) => (
-            <div key={f.id} className="group relative p-4 bg-white border border-slate-100 rounded-[1.5rem] flex items-center justify-between shadow-sm hover:shadow-md transition-all">
-              <div className="flex items-center space-x-4 overflow-hidden">
-                <div className="w-10 h-10 bg-slate-50 rounded-2xl flex items-center justify-center text-lg shadow-inner">
+            <div key={f.id} className="group flex items-center justify-between p-4 bg-white hover:bg-slate-50 rounded-2xl border border-transparent hover:border-slate-100 transition-all">
+              <div className="flex items-center gap-4 overflow-hidden">
+                <div className="shrink-0 w-8 h-8 bg-slate-50 rounded-lg flex items-center justify-center text-slate-400">
                   {getIcon(f.type)}
                 </div>
-                <div className="flex flex-col overflow-hidden">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-bold truncate text-slate-700">{f.file.name}</span>
-                    {isCloudActive && (
-                      <span className="text-[10px] opacity-60" title="Синхронизировано">☁️</span>
-                    )}
-                  </div>
-                  <span className="text-[10px] font-black text-slate-300 uppercase">{(f.file.size / (1024 * 1024)).toFixed(2)} MB</span>
+                <div className="overflow-hidden">
+                  <p className="text-xs font-semibold text-slate-700 truncate">{f.file.name}</p>
+                  <p className="text-[9px] font-bold text-slate-300 uppercase tracking-tighter">
+                    {(f.file.size / (1024 * 1024)).toFixed(2)} MB {isCloudActive && '• Cloud Sync'}
+                  </p>
                 </div>
               </div>
-              <button
+              <button 
                 onClick={() => removeFile(f.id)}
-                className="w-8 h-8 flex items-center justify-center rounded-xl text-slate-300 hover:text-rose-500 hover:bg-rose-50 transition-all"
+                className="p-2 text-slate-200 hover:text-rose-500 transition-colors opacity-0 group-hover:opacity-100"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-                </svg>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
             </div>
           ))}

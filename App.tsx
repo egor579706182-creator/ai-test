@@ -83,7 +83,6 @@ const App: React.FC = () => {
     const oldIds = new Set(knowledgeFiles.map(f => f.id));
     const newIds = new Set(newFiles.map(f => f.id));
 
-    // Добавленные
     const added = newFiles.filter(f => !oldIds.has(f.id));
     for (const f of added) {
       try {
@@ -94,7 +93,6 @@ const App: React.FC = () => {
       }
     }
 
-    // Удаленные
     const removed = knowledgeFiles.filter(f => !newIds.has(f.id));
     for (const f of removed) {
       try {
@@ -107,7 +105,7 @@ const App: React.FC = () => {
   };
 
   const clearLibrary = async () => {
-    if (!window.confirm("Удалить ВСЕ методические материалы из библиотеки?")) return;
+    if (!window.confirm("Очистить все методические материалы?")) return;
     try {
       if (isCloudActive) {
         for (const f of knowledgeFiles) {
@@ -123,7 +121,7 @@ const App: React.FC = () => {
 
   const startAnalysis = async (mode: AnalysisMode) => {
     if (patientFiles.length === 0) {
-      setError("Пожалуйста, загрузите видео пациента для анализа.");
+      setError("Загрузите видео пациента для начала анализа.");
       return;
     }
 
@@ -135,152 +133,165 @@ const App: React.FC = () => {
       const result = await performMultimodalAnalysis(patientFiles, knowledgeFiles, mode);
       setReport(result);
       setStatus(AnalysisStatus.SUCCESS);
+      // Авто-скролл к результатам
+      setTimeout(() => {
+        window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+      }, 100);
     } catch (err: any) {
       setStatus(AnalysisStatus.ERROR);
-      setError(err.message || "Произошла ошибка при анализе.");
+      setError(err.message || "Ошибка анализа данных.");
     }
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 py-6 px-4 pb-32 font-sans selection:bg-indigo-100">
-      <div className="max-w-4xl mx-auto">
-        <header className="mb-8 flex items-center justify-between bg-white p-5 rounded-[2.5rem] shadow-sm border border-slate-100">
-          <div className="flex flex-col ml-2">
-            <h1 className="text-xl font-black text-slate-800 uppercase tracking-tighter">PRO Диагностика</h1>
-            <div className="flex items-center gap-2 mt-1">
-               <span className={`w-2 h-2 rounded-full ${isCloudActive ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`}></span>
-               <span className={`text-[9px] font-black uppercase tracking-widest ${isCloudActive ? 'text-emerald-600' : 'text-slate-400'}`}>
-                 {isSyncing ? 'Синхронизация...' : isCloudActive ? 'Облако активно' : 'Локальный режим'}
-               </span>
+    <div className="min-h-screen text-slate-900 pb-48 md:pb-56">
+      {/* Header */}
+      <nav className="sticky top-0 z-[60] glass border-b border-slate-100/50 px-4 md:px-6 py-4">
+        <div className="max-w-5xl mx-auto flex items-center justify-between">
+          <div className="flex items-center gap-3 md:gap-4">
+            <div className="w-9 h-9 md:w-11 md:h-11 bg-slate-900 rounded-2xl flex items-center justify-center text-white font-bold shadow-xl shadow-slate-200">
+              D
+            </div>
+            <div className="flex flex-col">
+              <h1 className="text-sm md:text-base font-bold tracking-tight text-slate-900 leading-none">Diagnostic Pro</h1>
+              <div className="flex items-center gap-1.5 mt-1">
+                <div className={`w-1.5 h-1.5 rounded-full ${isCloudActive ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`}></div>
+                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">
+                  {isSyncing ? 'Syncing' : isCloudActive ? 'Cloud Active' : 'Offline'}
+                </span>
+              </div>
             </div>
           </div>
-          <button onClick={() => { setSettingsError(null); setShowSettings(true); }} className="w-12 h-12 flex items-center justify-center bg-slate-50 rounded-[1.2rem] hover:bg-slate-100 transition-all border border-slate-100 shadow-inner active:scale-90">
-            <span className="text-xl">⚙️</span>
+          <button 
+            onClick={() => setShowSettings(true)}
+            className="p-2.5 bg-slate-50 hover:bg-slate-100 rounded-2xl transition-all text-slate-500 active:scale-90"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+            </svg>
           </button>
-        </header>
+        </div>
+      </nav>
 
-        {showSettings && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-md">
-            <div className="bg-white w-full max-w-lg rounded-[3rem] p-8 shadow-2xl relative animate-in zoom-in-95 duration-200">
-              <button onClick={() => setShowSettings(false)} className="absolute top-8 right-8 text-slate-300 hover:text-slate-600 font-bold text-2xl">✕</button>
+      <main className="max-w-3xl mx-auto px-4 md:px-6 py-8 md:py-16 space-y-12 md:space-y-20">
+        {/* Knowledge Section */}
+        <section className="animate-in fade-in slide-in-from-bottom-2 duration-500">
+          <div className="flex items-center justify-between mb-6 md:mb-10 px-1">
+            <div>
+              <h2 className="text-lg md:text-xl font-bold text-slate-900">База знаний</h2>
+              <p className="text-[11px] md:text-xs text-slate-400 mt-1 uppercase tracking-wide font-medium">Библиотека методичек</p>
+            </div>
+            {knowledgeFiles.length > 0 && (
+              <button onClick={clearLibrary} className="text-[10px] font-bold text-rose-400 hover:text-rose-600 transition-colors uppercase tracking-widest active:scale-95">
+                Сброс
+              </button>
+            )}
+          </div>
+          <div className="bg-white rounded-[2rem] p-1.5 shadow-[0_8px_30px_rgb(0,0,0,0.02)] border border-slate-100/60">
+            <FileUploader files={knowledgeFiles} onFilesChange={handleKnowledgeChange} isCloudActive={isCloudActive} />
+          </div>
+        </section>
+
+        {/* Patient Section */}
+        <section className="animate-in fade-in slide-in-from-bottom-2 duration-700">
+          <div className="mb-6 md:mb-10 px-1">
+            <h2 className="text-lg md:text-xl font-bold text-slate-900">Данные пациента</h2>
+            <p className="text-[11px] md:text-xs text-slate-400 mt-1 uppercase tracking-wide font-medium">Записи обследования</p>
+          </div>
+          <div className="bg-white rounded-[2rem] p-1.5 shadow-[0_8px_30px_rgb(0,0,0,0.02)] border border-slate-100/60">
+            <FileUploader files={patientFiles} onFilesChange={setPatientFiles} />
+          </div>
+        </section>
+
+        {error && (
+          <div className="bg-rose-50 border border-rose-100 text-rose-600 p-6 md:p-8 rounded-3xl text-xs md:text-sm font-semibold text-center animate-in zoom-in-95 duration-300">
+            <svg className="w-6 h-6 mx-auto mb-2 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            {error}
+          </div>
+        )}
+
+        {status === AnalysisStatus.SUCCESS && report && (
+          <AnalysisDisplay report={report} />
+        )}
+      </main>
+
+      {/* Mobile-First Control Bar */}
+      <div className="fixed bottom-6 md:bottom-10 left-0 right-0 z-50 px-4 md:px-6">
+        <div className="max-w-md mx-auto glass p-2.5 md:p-3 rounded-[2.5rem] shadow-[0_32px_64px_-12px_rgba(0,0,0,0.2)] border border-white/60 flex flex-col md:flex-row gap-2">
+          <button 
+            disabled={status === AnalysisStatus.LOADING}
+            onClick={() => startAnalysis(AnalysisMode.DIAGNOSTIC)}
+            className="flex-1 bg-slate-900 text-white py-4 md:py-5 px-6 rounded-[2rem] font-bold text-[11px] md:text-xs uppercase tracking-[0.2em] hover:bg-slate-800 disabled:opacity-40 transition-all active:scale-95 shadow-xl shadow-slate-200 flex items-center justify-center gap-3 overflow-hidden"
+          >
+            {status === AnalysisStatus.LOADING ? (
+               <div className="flex items-center gap-3">
+                 <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin"></div>
+                 <span>Анализ...</span>
+               </div>
+            ) : (
+              <>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+                <span>Диагностика</span>
+              </>
+            )}
+          </button>
+          <button 
+            disabled={status === AnalysisStatus.LOADING}
+            onClick={() => startAnalysis(AnalysisMode.OBSERVATION)}
+            className="bg-slate-100 text-slate-900 py-4 md:py-5 px-8 rounded-[2rem] font-bold text-[11px] md:text-xs uppercase tracking-[0.2em] hover:bg-slate-200 disabled:opacity-40 transition-all active:scale-95 border border-slate-200/50"
+          >
+            Скрининг
+          </button>
+        </div>
+      </div>
+
+      {/* Settings Modal (Mobile Fullscreen Support) */}
+      {showSettings && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 md:p-6 bg-slate-900/10 backdrop-blur-2xl animate-in fade-in duration-300">
+          <div className="bg-white w-full max-w-sm rounded-[3rem] p-8 md:p-10 shadow-2xl border border-white relative overflow-hidden">
+            <div className="absolute top-0 right-0 p-8">
+              <button onClick={() => setShowSettings(false)} className="text-slate-300 hover:text-slate-900 transition-colors p-2">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            
+            <div className="mb-10 mt-4">
+              <h3 className="text-xl font-black text-slate-900 mb-2">Cloud Engine</h3>
+              <p className="text-[11px] text-slate-400 font-medium uppercase tracking-widest leading-relaxed">Безопасная синхронизация данных</p>
+            </div>
+
+            <form onSubmit={saveCloudSettings} className="space-y-6">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Supabase Endpoint</label>
+                <input name="url" defaultValue={cloud.getSupabaseConfig().url || ''} placeholder="https://..." required className="w-full bg-slate-50 border border-slate-100/80 p-5 rounded-2xl text-sm outline-none focus:ring-4 focus:ring-indigo-500/5 transition-all placeholder:text-slate-300" />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Private Key</label>
+                <input name="key" type="password" defaultValue={cloud.getSupabaseConfig().key || ''} placeholder="••••••••••••" required className="w-full bg-slate-50 border border-slate-100/80 p-5 rounded-2xl text-sm outline-none focus:ring-4 focus:ring-indigo-500/5 transition-all placeholder:text-slate-300" />
+              </div>
               
-              <h3 className="text-xl font-black text-slate-800 uppercase mb-2 flex items-center gap-3">
-                <span>☁️</span> Настройка Облака
-              </h3>
-              <p className="text-[10px] text-slate-400 font-bold uppercase mb-6 tracking-wide leading-relaxed">
-                Синхронизация позволяет хранить ваши методические материалы в безопасности и открывать их на любом устройстве.
-              </p>
-
-              <form onSubmit={saveCloudSettings} className="space-y-6">
-                <div className="space-y-1">
-                  <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Project URL</label>
-                  <input name="url" defaultValue={cloud.getSupabaseConfig().url || ''} placeholder="https://...supabase.co" required className="w-full bg-slate-50 border border-slate-200 p-4 rounded-2xl text-sm outline-none focus:ring-4 focus:ring-indigo-100 transition-all font-medium" />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[10px] font-black text-slate-400 uppercase ml-1">API Key (anon public)</label>
-                  <input name="key" type="password" defaultValue={cloud.getSupabaseConfig().key || ''} placeholder="eyJ..." required className="w-full bg-slate-50 border border-slate-200 p-4 rounded-2xl text-sm outline-none focus:ring-4 focus:ring-indigo-100 transition-all font-medium" />
-                </div>
-                {settingsError && <div className="bg-rose-50 border border-rose-100 text-rose-600 p-4 rounded-2xl text-[10px] font-bold animate-pulse">❌ {settingsError}</div>}
-                
-                <div className="pt-2">
-                  <button type="submit" disabled={isSavingSettings} className="w-full bg-indigo-600 text-white py-5 rounded-[1.5rem] font-black text-xs uppercase tracking-widest shadow-xl shadow-indigo-100 hover:bg-indigo-700 active:scale-95 transition-all disabled:bg-slate-300">
-                    {isSavingSettings ? '⌛ Проверка связи...' : '💾 Подключить и синхронизировать'}
-                  </button>
-                </div>
-              </form>
-
-              <div className="mt-8 pt-6 border-t border-slate-100 flex flex-col items-center gap-4">
+              <div className="pt-4 space-y-3">
+                <button type="submit" disabled={isSavingSettings} className="w-full bg-slate-900 text-white py-5 rounded-3xl font-bold text-xs uppercase tracking-widest shadow-2xl shadow-slate-200 hover:bg-slate-800 disabled:bg-slate-200 transition-all active:scale-95">
+                  {isSavingSettings ? 'Connecting' : 'Подключить'}
+                </button>
                 <button 
+                  type="button"
                   onClick={async () => { 
                     cloud.clearSupabaseConfig(); 
                     await refreshCloudConnection();
                     setShowSettings(false);
                   }}
-                  className="text-[10px] text-slate-400 font-bold uppercase hover:text-rose-500 transition-colors"
+                  className="w-full text-[10px] font-bold text-slate-400 uppercase tracking-widest hover:text-rose-500 py-4 transition-colors text-center"
                 >
-                  Вернуться в локальный режим
+                  Отключить облако
                 </button>
               </div>
-            </div>
+            </form>
           </div>
-        )}
-
-        <main className="space-y-8">
-          <section className={`p-8 rounded-[3rem] border-2 border-dashed transition-all duration-500 ${isCloudActive ? 'bg-emerald-50/20 border-emerald-100' : 'bg-slate-100/50 border-slate-200'}`}>
-            <div className="flex items-center justify-between mb-6">
-              <h2 className={`text-xs font-black uppercase tracking-widest ${isCloudActive ? 'text-emerald-700' : 'text-slate-500'}`}>
-                {isCloudActive ? '☁️ Облачная библиотека' : '📚 Локальная библиотека'}
-              </h2>
-              <div className="flex items-center gap-4">
-                {knowledgeFiles.length > 0 && (
-                  <button 
-                    onClick={clearLibrary}
-                    className="text-[9px] font-black uppercase text-rose-400 hover:text-rose-600 transition-colors"
-                  >
-                    Очистить всё
-                  </button>
-                )}
-                {isCloudActive && <span className="bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full text-[9px] font-black uppercase">Синхронизировано</span>}
-              </div>
-            </div>
-            
-            {isDbLoading ? (
-              <div className="h-32 flex items-center justify-center text-[10px] font-black text-slate-300 uppercase animate-pulse">Загрузка базы данных...</div>
-            ) : (
-              <FileUploader files={knowledgeFiles} onFilesChange={handleKnowledgeChange} isCloudActive={isCloudActive} />
-            )}
-          </section>
-
-          <section className="bg-white p-8 rounded-[3rem] shadow-sm border border-slate-100">
-            <h2 className="text-xs font-black text-slate-800 uppercase tracking-widest mb-6 flex items-center gap-2">
-               <span className="text-lg">👤</span> Данные пациента
-            </h2>
-            <FileUploader files={patientFiles} onFilesChange={setPatientFiles} />
-          </section>
-
-          {error && (
-            <div className="bg-rose-50 border border-rose-100 text-rose-600 p-6 rounded-[2rem] text-xs font-bold shadow-sm animate-in slide-in-from-bottom-2">
-              ⚠️ {error}
-            </div>
-          )}
-
-          {status === AnalysisStatus.SUCCESS && report && (
-            <AnalysisDisplay report={report} />
-          )}
-        </main>
-
-        <div className="fixed bottom-10 left-1/2 -translate-x-1/2 w-full max-w-md px-6 z-50">
-          <div className="grid grid-cols-2 gap-4 bg-slate-900/90 backdrop-blur-xl p-4 rounded-[2.5rem] shadow-2xl border border-white/10">
-            <button 
-              disabled={status === AnalysisStatus.LOADING} 
-              onClick={() => startAnalysis(AnalysisMode.DIAGNOSTIC)} 
-              className="bg-white text-slate-900 py-4 rounded-[1.5rem] font-black text-[10px] uppercase tracking-widest shadow-lg active:scale-90 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
-            >
-              {status === AnalysisStatus.LOADING ? (
-                <>
-                  <span className="w-3 h-3 border-2 border-slate-900 border-t-transparent rounded-full animate-spin"></span>
-                  <span>Анализ...</span>
-                </>
-              ) : 'Диагностика'}
-            </button>
-            <button 
-              disabled={status === AnalysisStatus.LOADING} 
-              onClick={() => startAnalysis(AnalysisMode.OBSERVATION)} 
-              className="bg-indigo-600 text-white py-4 rounded-[1.5rem] font-black text-[10px] uppercase tracking-widest shadow-lg active:scale-90 transition-all disabled:opacity-50"
-            >
-              {status === AnalysisStatus.LOADING ? '⏳ Ожидание...' : 'Наблюдение'}
-            </button>
-          </div>
-          
-          {status === AnalysisStatus.LOADING && (
-            <div className="absolute -top-12 left-0 right-0 text-center">
-              <span className="text-[10px] font-black text-slate-900 uppercase bg-white/90 backdrop-blur px-4 py-2 rounded-full shadow-lg border border-slate-100">
-                {knowledgeFiles.length > 5 ? 'Обработка большого объема данных (10+ файлов)...' : 'Сопоставление видео с методичками...'}
-              </span>
-            </div>
-          )}
         </div>
-      </div>
+      )}
     </div>
   );
 };

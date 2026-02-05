@@ -38,12 +38,11 @@ export const performMultimodalAnalysis = async (
   mode: AnalysisMode = AnalysisMode.DIAGNOSTIC,
   retryCount = 0
 ): Promise<string> => {
-  // Возвращаем Pro для диагностики для максимальной глубины анализа
   const modelName = mode === AnalysisMode.DIAGNOSTIC ? 'gemini-3-pro-preview' : 'gemini-3-flash-preview';
   
   const apiKey = process.env.API_KEY;
   if (!apiKey) {
-    throw new Error("API ключ не настроен в переменных окружения Vercel.");
+    throw new Error("API ключ не настроен.");
   }
 
   const ai = new GoogleGenAI({ apiKey });
@@ -77,12 +76,20 @@ export const performMultimodalAnalysis = async (
       }));
 
     if (patientParts.length === 0) {
-      throw new Error("Не удалось загрузить видео пациента. Проверьте формат файла.");
+      throw new Error("Не удалось загрузить данные пациента. Проверьте формат файлов.");
     }
 
+    // Усиленные инструкции для глубокого анализа
     const systemInstruction = mode === AnalysisMode.DIAGNOSTIC 
-      ? "ВЫ — ВЕДУЩИЙ ЭКСПЕРТ-НЕЙРОПСИХОЛОГ. Проведите глубокий мультимодальный анализ видео ребенка. Используйте предоставленную базу знаний как эталон. Ваш отчет должен быть максимально детальным, структурированным и профессиональным. Сравнивайте поведение на видео с клиническими нормами из документов."
-      : "Подробно опишите поведение, мимику, жесты и коммуникативные акты ребенка на видео для протокола наблюдения.";
+      ? `ИНСТРУКЦИЯ ДЛЯ ГЛУБОКОГО КЛИНИЧЕСКОГО АНАЛИЗА:
+         1. НАЧИНАЙ СРАЗУ С ОТЧЕТА. Без вступлений, приветствий и представления себя.
+         2. ГЛУБИНА И ФАКТЫ: Для каждого наблюдения ОБЯЗАТЕЛЬНО указывай тайм-код видео (например, [02:15]).
+         3. ДОКАЗАТЕЛЬСТВА: Обосновывай суждения конкретными фактами из видео (мимика, жесты, вокализации) и сопоставляй их с нормами из предоставленной базы знаний.
+         4. СТРУКТУРА: Используй четкие заголовки (Развитие речи, Моторика, Коммуникация и т.д.).
+         5. ТЕРМИНОЛОГИЯ: Используй профессиональный язык нейропсихолога. 
+         6. ФОРМАТ: Не используй лишние знаки разметки, кроме стандартных заголовков и списков.`
+      : `ИНСТРУКЦИЯ ДЛЯ СКРИНИНГА:
+         Начинай сразу с описания. Обязательно фиксируй ключевые моменты с тайм-кодами. Опиши поведение, мимику и коммуникацию ребенка максимально детально, но без воды. Без вступительных фраз.`;
 
     const response = await ai.models.generateContent({
       model: modelName,
@@ -95,29 +102,20 @@ export const performMultimodalAnalysis = async (
       },
       config: {
         temperature: 0.1,
-        // Для Pro-модели используем максимальный бюджет на размышление для глубокой аналитики
         thinkingConfig: { 
           thinkingBudget: mode === AnalysisMode.DIAGNOSTIC ? 32768 : 0 
         }
       }
     });
 
-    return response.text || "Модель не вернула текст. Попробуйте еще раз.";
+    return response.text || "Ошибка получения данных от модели.";
   } catch (error: any) {
     const errorMsg = error.message || String(error);
-    
-    // Обработка лимитов (429) с ожиданием
     if ((errorMsg.includes('429') || errorMsg.includes('quota')) && retryCount < 2) {
-      // Увеличиваем время ожидания при повторах (экспоненциальный бэк-офф)
       const waitTime = mode === AnalysisMode.DIAGNOSTIC ? 30000 : 10000; 
       await wait(waitTime * (retryCount + 1));
       return performMultimodalAnalysis(patientFiles, knowledgeFiles, mode, retryCount + 1);
     }
-    
-    if (errorMsg.includes('429')) {
-      throw new Error("Превышена квота на использование Pro-модели. Пожалуйста, подождите несколько минут или попробуйте режим 'Наблюдение'.");
-    }
-    
     throw error;
   }
 };
