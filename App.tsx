@@ -4,7 +4,7 @@ import { AnalysisFile, AnalysisStatus, AnalysisMode } from './types';
 import FileUploader from './components/FileUploader';
 import AnalysisDisplay from './components/AnalysisDisplay';
 import { performMultimodalAnalysis } from './services/geminiService';
-import { getAllKnowledgeFiles, saveKnowledgeFile, deleteKnowledgeFile } from './services/storageService';
+import { getAllKnowledgeFiles, saveKnowledgeFile, deleteKnowledgeFile, clearKnowledgeBase } from './services/storageService';
 import * as cloud from './services/supabaseService';
 
 const App: React.FC = () => {
@@ -106,6 +106,21 @@ const App: React.FC = () => {
     setKnowledgeFiles(newFiles);
   };
 
+  const clearLibrary = async () => {
+    if (!window.confirm("Удалить ВСЕ методические материалы из библиотеки?")) return;
+    try {
+      if (isCloudActive) {
+        for (const f of knowledgeFiles) {
+          await cloud.deleteFileFromCloud(f.id);
+        }
+      }
+      await clearKnowledgeBase();
+      setKnowledgeFiles([]);
+    } catch (e: any) {
+      setError(`Ошибка при очистке: ${e.message}`);
+    }
+  };
+
   const startAnalysis = async (mode: AnalysisMode) => {
     if (patientFiles.length === 0) {
       setError("Пожалуйста, загрузите видео пациента для анализа.");
@@ -196,7 +211,17 @@ const App: React.FC = () => {
               <h2 className={`text-xs font-black uppercase tracking-widest ${isCloudActive ? 'text-emerald-700' : 'text-slate-500'}`}>
                 {isCloudActive ? '☁️ Облачная библиотека' : '📚 Локальная библиотека'}
               </h2>
-              {isCloudActive && <span className="bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full text-[9px] font-black uppercase">Синхронизировано</span>}
+              <div className="flex items-center gap-4">
+                {knowledgeFiles.length > 0 && (
+                  <button 
+                    onClick={clearLibrary}
+                    className="text-[9px] font-black uppercase text-rose-400 hover:text-rose-600 transition-colors"
+                  >
+                    Очистить всё
+                  </button>
+                )}
+                {isCloudActive && <span className="bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full text-[9px] font-black uppercase">Синхронизировано</span>}
+              </div>
             </div>
             
             {isDbLoading ? (
@@ -229,18 +254,31 @@ const App: React.FC = () => {
             <button 
               disabled={status === AnalysisStatus.LOADING} 
               onClick={() => startAnalysis(AnalysisMode.DIAGNOSTIC)} 
-              className="bg-white text-slate-900 py-4 rounded-[1.5rem] font-black text-[10px] uppercase tracking-widest shadow-lg active:scale-90 transition-all disabled:opacity-50"
+              className="bg-white text-slate-900 py-4 rounded-[1.5rem] font-black text-[10px] uppercase tracking-widest shadow-lg active:scale-90 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
             >
-              {status === AnalysisStatus.LOADING ? '⏳ Анализ...' : 'Диагностика'}
+              {status === AnalysisStatus.LOADING ? (
+                <>
+                  <span className="w-3 h-3 border-2 border-slate-900 border-t-transparent rounded-full animate-spin"></span>
+                  <span>Анализ...</span>
+                </>
+              ) : 'Диагностика'}
             </button>
             <button 
               disabled={status === AnalysisStatus.LOADING} 
               onClick={() => startAnalysis(AnalysisMode.OBSERVATION)} 
               className="bg-indigo-600 text-white py-4 rounded-[1.5rem] font-black text-[10px] uppercase tracking-widest shadow-lg active:scale-90 transition-all disabled:opacity-50"
             >
-              Наблюдение
+              {status === AnalysisStatus.LOADING ? '⏳ Ожидание...' : 'Наблюдение'}
             </button>
           </div>
+          
+          {status === AnalysisStatus.LOADING && (
+            <div className="absolute -top-12 left-0 right-0 text-center">
+              <span className="text-[10px] font-black text-slate-900 uppercase bg-white/90 backdrop-blur px-4 py-2 rounded-full shadow-lg border border-slate-100">
+                {knowledgeFiles.length > 5 ? 'Обработка большого объема данных (10+ файлов)...' : 'Сопоставление видео с методичками...'}
+              </span>
+            </div>
+          )}
         </div>
       </div>
     </div>
